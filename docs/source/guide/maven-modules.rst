@@ -41,9 +41,6 @@ Modules:
 ``hydra-task``
   File splitting and tree building.  Hydra tasks can be run stand alone (from the command line) without being part of a cluster.
 
-``hydra-main-api``
-  Core interfaces for manipulating Hydra jobs in a distributed system.
-
 ``hydra-main``
   Hydra processes: Spawn, Minion, QueryMaster, QueryWorker.
 

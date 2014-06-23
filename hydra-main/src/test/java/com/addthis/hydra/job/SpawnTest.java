@@ -22,6 +22,8 @@ import com.addthis.codec.CodecJSON;
 import com.addthis.hydra.job.mq.HostCapacity;
 import com.addthis.hydra.job.mq.HostState;
 import com.addthis.hydra.job.mq.JobKey;
+import com.addthis.hydra.job.preprocess.JobExpand;
+import com.addthis.hydra.job.preprocess.JobParameter;
 
 import org.apache.zookeeper.CreateMode;
 import org.junit.Before;

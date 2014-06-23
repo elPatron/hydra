@@ -22,6 +22,7 @@ import com.addthis.basis.util.JitterClock;
 
 import com.addthis.codec.Codec;
 import com.addthis.codec.CodecJSON;
+import com.addthis.hydra.job.preprocess.JobParameter;
 import com.addthis.hydra.job.spawn.JobAlert;
 import com.addthis.maljson.JSONObject;
 

@@ -28,6 +28,7 @@ import com.addthis.basis.util.RollingLog;
 import com.addthis.codec.Codec;
 import com.addthis.codec.Codec.Codable;
 import com.addthis.codec.CodecJSON;
+import com.addthis.hydra.job.preprocess.JobParameter;
 import com.addthis.hydra.job.spawn.JobAlert;
 import com.addthis.hydra.util.LogUtil;
 import com.addthis.hydra.util.StringMapHelper;

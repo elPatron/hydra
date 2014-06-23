@@ -23,7 +23,7 @@ import javax.ws.rs.core.Response;
 
 import com.addthis.basis.kv.KVPairs;
 
-import com.addthis.hydra.job.JobMacro;
+import com.addthis.hydra.job.preprocess.JobMacro;
 import com.addthis.hydra.job.Spawn;
 import com.addthis.hydra.job.spawn.jersey.User;
 import com.addthis.maljson.JSONArray;

@@ -37,7 +37,6 @@
     <module>hydra-data</module>
     <module>hydra-essentials</module>
     <module>hydra-filters</module>
-    <module>hydra-main-api</module>
     <module>hydra-main</module>
     <module>hydra-mq</module>
     <module>hydra-store</module>

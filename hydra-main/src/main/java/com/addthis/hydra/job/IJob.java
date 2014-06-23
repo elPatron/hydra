@@ -17,6 +17,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 
+import com.addthis.hydra.job.preprocess.JobParameter;
 import com.addthis.hydra.job.spawn.JobAlert;
 import com.addthis.maljson.JSONObject;
 

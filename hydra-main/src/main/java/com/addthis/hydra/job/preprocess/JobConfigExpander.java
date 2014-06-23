@@ -11,15 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.addthis.hydra.job;
+package com.addthis.hydra.job.preprocess;
 
 import java.util.List;
 
-import com.addthis.hydra.job.store.SpawnDataStore;
-
+import com.addthis.hydra.job.Spawn;
 
 public interface JobConfigExpander {
 
-    public String expand(SpawnDataStore spawnDataStore, String jobId, List<String> tokens);
+    public String expand(Spawn spawn, String jobId, List<String> tokens);
 
 }

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.addthis.hydra.job;
+package com.addthis.hydra.job.preprocess;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -29,6 +29,7 @@ import com.addthis.basis.util.TokenReplacerOverflowException;
 
 import com.addthis.hydra.common.plugins.PluginReader;
 import com.addthis.hydra.data.util.CommentTokenizer;
+import com.addthis.hydra.job.Spawn;
 
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
@@ -69,7 +70,7 @@ public class JobExpand {
                     throw new RuntimeException(ex);
                 }
             }
-            JobMacro macro = spawnState.macros.get(label);
+            JobMacro macro = spawnState.getMacros().get(label);
             if (macro != null) {
                 List<String> contents = new ArrayList<>();
                 List<String> delimiters = new ArrayList<>();
@@ -142,7 +143,7 @@ public class JobExpand {
         }.process(input);
     }
 
-    static String macroTemplateParams(String expandedJob, Collection<JobParameter> params)
+    public static String macroTemplateParams(String expandedJob, Collection<JobParameter> params)
             throws TokenReplacerOverflowException {
         if (params != null && expandedJob != null) {
             final HashMap<String, String> map = new HashMap<>();
@@ -288,7 +289,7 @@ public class JobExpand {
                     JobMacro macro = spawn.createJobHostMacro(tokens.get(0), Integer.parseInt(tokens.get(1)));
                     return macro.getMacro();
                 } else if (expanders.containsKey(macroName)) {
-                    return expanders.get(macroName).expand(spawn.getSpawnDataStore(), jobId, tokens);
+                    return expanders.get(macroName).expand(spawn, jobId, tokens);
                 } else {
                     String msg = "non-existent magic macro referenced : " + label;
                     log.warn(msg);

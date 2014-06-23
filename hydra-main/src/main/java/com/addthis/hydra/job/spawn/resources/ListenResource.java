@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.addthis.codec.CodecJSON;
 import com.addthis.hydra.job.IJob;
 import com.addthis.hydra.job.JobCommand;
-import com.addthis.hydra.job.JobMacro;
+import com.addthis.hydra.job.preprocess.JobMacro;
 import com.addthis.hydra.job.Spawn;
 import com.addthis.hydra.job.SpawnBalancerConfig;
 import com.addthis.hydra.job.mq.HostState;

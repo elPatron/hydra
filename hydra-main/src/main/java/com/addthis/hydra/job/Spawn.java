@@ -88,6 +88,9 @@ import com.addthis.hydra.job.mq.StatusTaskPort;
 import com.addthis.hydra.job.mq.StatusTaskReplica;
 import com.addthis.hydra.job.mq.StatusTaskReplicate;
 import com.addthis.hydra.job.mq.StatusTaskRevert;
+import com.addthis.hydra.job.preprocess.JobExpand;
+import com.addthis.hydra.job.preprocess.JobMacro;
+import com.addthis.hydra.job.preprocess.JobParameter;
 import com.addthis.hydra.job.spawn.JobAlert;
 import com.addthis.hydra.job.spawn.JobAlertRunner;
 import com.addthis.hydra.job.spawn.SpawnService;
@@ -600,6 +603,9 @@ public class Spawn implements Codec.Codable {
         return new Settings();
     }
 
+    public List<String> aliasToJobs(String alias) {
+        return aliasBiMap.getJobs(alias);
+    }
 
     public Map<String, List<String>> getAliases() {
         return aliasBiMap.viewAliasMap();
@@ -761,7 +767,6 @@ public class Spawn implements Codec.Codable {
             buildDependencyFlowGraph(graph, jobDep.getId());
         }
     }
-
     /**
      * Gets the backup times for a given job and node of all backup types by using MeshyClient. If the nodeId is -1 it will
      * get the backup times for all nodes.
@@ -2771,8 +2776,7 @@ public class Spawn implements Codec.Codable {
         return debug != null && (debug.contains(match) || debug.contains("-all-"));
     }
 
-    @VisibleForTesting
-    JobMacro createJobHostMacro(String job, int port) {
+    public JobMacro createJobHostMacro(String job, int port) {
         String sPort = Integer.valueOf(port).toString();
         Set<String> jobHosts = new TreeSet<>();// best set?
         jobLock.lock();
@@ -3978,14 +3982,26 @@ public class Spawn implements Codec.Codable {
         return spawnDataStore;
     }
 
-    @VisibleForTesting
-    protected static class SpawnState implements Codec.Codable {
+
+    public static class SpawnState implements Codec.Codable {
 
         final ConcurrentMap<String, JobMacro> macros = new ConcurrentHashMapV8<>();
         final ConcurrentMap<String, JobCommand> commands = new ConcurrentHashMapV8<>();
         final ConcurrentMap<String, Job> jobs = new ConcurrentHashMapV8<>();
         final DirectedGraph<String> jobDependencies = new DirectedGraph<>();
         SpawnBalancerConfig balancerConfig = new SpawnBalancerConfig();
+
+        public ConcurrentMap<String, JobMacro> getMacros() {
+            return macros;
+        }
+
+        public ConcurrentMap<String, JobCommand> getCommands() {
+            return commands;
+        }
+
+        public ConcurrentMap<String, Job> getJobs() {
+            return jobs;
+        }
     }
 
 }
