@@ -24,7 +24,9 @@ import java.math.RoundingMode;
 import com.addthis.basis.util.Varint;
 
 import com.addthis.bundle.core.BundleField;
+import com.addthis.bundle.value.ValueArray;
 import com.addthis.bundle.value.ValueFactory;
+import com.addthis.bundle.value.ValueMap;
 import com.addthis.bundle.value.ValueObject;
 import com.addthis.codec.annotations.FieldConfig;
 import com.addthis.codec.codables.BytesCodable;
@@ -246,16 +248,12 @@ public class DataReservoir extends TreeNodeData<DataReservoir.Config> implements
 
     @Override
     public ValueObject getValue(String key) {
-        if (key == null) {
-            return null;
-        } else if (key.startsWith("get(") && key.endsWith(")")) {
-            String input = key.substring(4, key.length() - 1);
-            long epoch = Long.parseLong(input);
-            long result = retrieveCount(epoch);
-            return ValueFactory.create(Math.max(0, result));
-        } else {
-            return null;
-        }
+            ValueArray result = ValueFactory.createArray(3);
+            result.add(ValueFactory.create(1));
+            result.add(ValueFactory.create(2));
+            result.add(ValueFactory.create(3));
+            result.add(ValueFactory.create(4));
+            return result;
     }
 
     /**
