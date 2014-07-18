@@ -37,6 +37,42 @@ public class DataCountingMin extends TreeNodeData<DataCountingMin.Config> {
     }
 
     /**
+     * This data attachment performs <span class="hydra-summary">cardinality estimation
+     * with a threshold</span>. It is an extension of the
+     * {@link com.addthis.hydra.data.tree.prop.DataCounting.Config count} data attachment
+     * where a minimum threshold M is specified by the user. A value must be observed
+     * M times before it is admitted into the data attachment.
+     *
+     * <p>The count.min data attachment is implemented with the combination of
+     * a bloom filter and a count min sketch data structure. When a value is provided
+     * the estimate in the count min sketch for that value is retrieved. If that estimate
+     * is less than M then the count min sketch is updated. Otherwise the value is
+     * inserted into the bloom filter.</p>
+     * <p>Job Configuration Example:</p>
+     * <pre>
+     * {type : "const", value : "shard-counter"},
+     * {type : "value", key : "DATE_YMD", data : {
+     *   ips : {type : "count.min", percentage: 0.01, minimum : 10, key : "IP"},
+     * }},</pre>
+     *
+     * <p><b>Query Path Directives</b>
+     *
+     * <pre>"$" operations support the following commands in the format $+{attachment}={command}:
+     *
+     *   count : the cardinality estimation.
+     *   class : the simple class name of the estimator.
+     *   used  : if the estimator is linear then return the utilization. Otherwise an command.
+     *   put(x): offer x / show x to the estimator to be counted. 1 if the estimate changed, else 0.</pre>
+     *
+     * <p>If no command is specified or an invalid command is specified then the estimator returns as
+     * a custom value type.
+     *
+     * <p>"%" operations are not supported.
+     *
+     * <p>Query Path Example:</p>
+     * <pre>
+     *     /shard-counter/+130101$+ips=count
+     * </pre>
      * @user-reference
      * @hydra-name count.min
      **/
@@ -51,6 +87,7 @@ public class DataCountingMin extends TreeNodeData<DataCountingMin.Config> {
         /**
          * Minimum cardinality for storing in the bloom filter. This field is required.
          */
+        @FieldConfig(codable = true, required = true)
         int minimum;
 
         /**
@@ -83,6 +120,7 @@ public class DataCountingMin extends TreeNodeData<DataCountingMin.Config> {
          * in count.min.sketch. Expressed as a fraction.
          * Default is 0.99995.
          */
+        @FieldConfig(codable = true)
         double confidence = 0.99995;
 
         /**
