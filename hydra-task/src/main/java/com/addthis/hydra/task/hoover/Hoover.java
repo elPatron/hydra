@@ -17,7 +17,11 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -538,23 +542,14 @@ public class Hoover extends TaskRunnable implements Runnable {
         return false;
     }
 
-	private String prependZero(String str) {
-		return (str.length()==1) ? "0"+str : str;
-	}
-
     /*
      * exec scp to find list of remote files
      */
-
     private Collection<MarkFile> findFiles(String hostNickname, String host) {
         LinkedList<MarkFile> files = new LinkedList<>();
         String[] newCmd = new String[listCommand.length];
-		String year = String.valueOf(Calendar.getInstance().get(Calendar.YEAR));
-		String month = prependZero(String.valueOf(Calendar.getInstance().get(Calendar.MONTH)));
-		String date = prependZero(String.valueOf(Calendar.getInstance().get(Calendar.DATE)));
-		String dynamicDatePath = path.replace("{{YY}}",year).replace("{{M}}",month).replace("{{D}}",date);
         for (int i = 0; i < newCmd.length; i++) {
-            newCmd[i] = listCommand[i].replace("{{USER}}", user).replace("{{HOST}}", host).replace("{{PATH}}", dynamicDatePath);
+            newCmd[i] = listCommand[i].replace("{{USER}}", user).replace("{{HOST}}", host).replace("{{PATH}}", path);
         }
         if (verboseCheck || log.isDebugEnabled()) log.info("find cmd=" + Strings.join(newCmd, " "));
         try {
