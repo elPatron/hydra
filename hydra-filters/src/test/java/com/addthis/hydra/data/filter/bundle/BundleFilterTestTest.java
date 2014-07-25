@@ -11,11 +11,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.addthis.hydra.task.source;
+package com.addthis.hydra.data.filter.bundle;
 
-import java.util.Collection;
+import com.addthis.bundle.core.Bundle;
+import com.addthis.bundle.core.list.ListBundle;
+import com.addthis.codec.config.Configs;
 
-public interface TaskDataSourceSelector {
+import org.junit.Test;
 
-    public TaskDataSource selectSource(Collection<TaskDataSource> sources, TaskDataSource last);
+public class BundleFilterTestTest {
+
+    @Test public void allTrue() {
+        Bundle bundle = new ListBundle();
+        BundleFilterTest filter = Configs.decodeObject(
+                BundleFilterTest.class, "test = [], onTrue = [], onFalse = []");
+        filter.filter(bundle);
+    }
 }
