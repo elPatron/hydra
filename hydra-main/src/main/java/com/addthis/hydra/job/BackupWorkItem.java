@@ -15,6 +15,8 @@ package com.addthis.hydra.job;
 
 import java.io.File;
 
+import com.addthis.hydra.job.minion.*;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 public class BackupWorkItem extends MinionWorkItem {
@@ -23,7 +25,7 @@ public class BackupWorkItem extends MinionWorkItem {
     private final String rebalanceSource;
     private final String rebalanceTarget;
 
-    public BackupWorkItem(File jobDir, File pidFile, File runFile, File doneFile, Minion.JobTask task, String rebalanceSource, String rebalanceTarget, boolean execute) {
+    public BackupWorkItem(File jobDir, File pidFile, File runFile, File doneFile, com.addthis.hydra.job.minion.JobTask task, String rebalanceSource, String rebalanceTarget, boolean execute) {
         super(jobDir, pidFile, runFile, doneFile, task, execute);
         this.rebalanceSource = rebalanceSource;
         this.rebalanceTarget = rebalanceTarget;

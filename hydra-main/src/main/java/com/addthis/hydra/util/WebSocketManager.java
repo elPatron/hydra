@@ -25,12 +25,14 @@ import java.util.concurrent.TimeUnit;
 
 import com.addthis.basis.util.Parameter;
 
-import com.addthis.hydra.job.Spawn;
+import com.addthis.hydra.job.spawn.ClientEvent;
+import com.addthis.hydra.job.spawn.Spawn;
 import com.addthis.maljson.JSONArray;
 import com.addthis.maljson.JSONObject;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yammer.metrics.Metrics;
 import com.yammer.metrics.core.Counter;
 
@@ -54,7 +56,7 @@ public class WebSocketManager extends WebSocketHandler {
     /**
      * A json factory for any json serializing
      */
-    private static final JsonFactory factory = new JsonFactory(new com.fasterxml.jackson.databind.ObjectMapper());
+    private static final JsonFactory factory = new JsonFactory(new ObjectMapper());
 
     /**
      * Object used as monitor that the WebUpdateThread waits on when there are no websockets, and then gets notified when a websocket arrives
@@ -107,7 +109,7 @@ public class WebSocketManager extends WebSocketHandler {
      * create and return a class which implements the necessary WebSocket
      * interfaces.
      */
-    public WebSocket doWebSocketConnect(HttpServletRequest request, String protocol) {
+    @Override public WebSocket doWebSocketConnect(HttpServletRequest request, String protocol) {
         MQWebSocket webSocket = new MQWebSocket(request.getParameter("user"), request.getRemoteAddr());
         synchronized (monitor) {
             int numberOfSockets = webSockets.size();
@@ -181,7 +183,7 @@ public class WebSocketManager extends WebSocketHandler {
      *
      * @param event
      */
-    public void addEvent(Spawn.ClientEvent event) {
+    public void addEvent(ClientEvent event) {
         for (MQWebSocket webSocket : webSockets) {
             webSocket.addEvent(event);
         }
@@ -226,7 +228,7 @@ public class WebSocketManager extends WebSocketHandler {
         /**
          * A queue of events to queue up and push to websockets at intervals
          */
-        private final LinkedBlockingQueue<Spawn.ClientEvent> eventQueue = new LinkedBlockingQueue<>();
+        private final LinkedBlockingQueue<ClientEvent> eventQueue = new LinkedBlockingQueue<>();
 
         public MQWebSocket(String username, String remoteAddress) {
             this.username = username;
@@ -243,7 +245,7 @@ public class WebSocketManager extends WebSocketHandler {
          *
          * @param connection the newly opened connection
          */
-        public void onOpen(Connection connection) {
+        @Override public void onOpen(Connection connection) {
             //System.out.println("[SERVER] Opened connection");
             connection.setMaxIdleTime(30000);
             // WebSocket has been opened. Store the opened connection
@@ -262,7 +264,7 @@ public class WebSocketManager extends WebSocketHandler {
          *
          * @param data message sent by client to server in String format
          */
-        public void onMessage(String data) {
+        @Override public void onMessage(String data) {
             try {
                 if (data.equals("ping")) {
                     this.connection.sendMessage("pong");
@@ -283,7 +285,7 @@ public class WebSocketManager extends WebSocketHandler {
          * @param closeCode the exit code of the connection in integer format
          * @param message   a human readable message for the exit code
          */
-        public void onClose(int closeCode, String message) {
+        @Override public void onClose(int closeCode, String message) {
             webSockets.remove(this);
         }
 
@@ -352,7 +354,7 @@ public class WebSocketManager extends WebSocketHandler {
             this.remoteAddress = remoteAddress;
         }
 
-        public void addEvent(Spawn.ClientEvent event) {
+        public void addEvent(ClientEvent event) {
             if (eventQueue.size() > clientDropQueueSize) {
                 // Queue has grown too big. Client does not appear to be consuming. Drop the socket to prevent an ugly OOM.
                 eventQueue.clear();
@@ -367,7 +369,7 @@ public class WebSocketManager extends WebSocketHandler {
             try {
                 JSONArray eventArray = new JSONArray();
                 for (int i = 0; i < eventQueue.size() && i < maxNumber; i++) {
-                    Spawn.ClientEvent event = eventQueue.poll(1000, TimeUnit.MILLISECONDS);
+                    ClientEvent event = eventQueue.poll(1000, TimeUnit.MILLISECONDS);
                     eventArray.put(event.toJSON());
                     events++;
                 }

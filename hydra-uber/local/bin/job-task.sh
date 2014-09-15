@@ -28,19 +28,14 @@ eval exec ${JAVA_CMD:-java} \
 	-XX:+AggressiveOpts \
 	-XX:+UseParallelGC \
 	-XX:+UseParallelOldGC \
-	-Dlog4j.defaultInitOverride=true \
-    -Dlog4j.configuration=${LOG4J_CFG} \
+	-Dlog4j.configurationFactory=com.addthis.hydra.uber.HoconConfigurationFactory \
+	-Dorg.jboss.logging.provider=slf4j \
 	-Dbatch.brokerHost=${brokerHost:-localhost} \
 	-Dbatch.brokerPort=${brokerPort:-5672} \
 	-Dbatch.job.log4j=1 \
 	-Dcs.je.cacheSize=128M \
 	-Dcs.je.cacheShared=1 \
 	-Dcs.je.deferredWrite=1 \
-	-Dhydra.query.age.max=120000 \
-	-Dhydra.query.cache.max=4096 \
-	-Dhydra.query.concurrent.timeout=180000 \
-	-Dhydra.query.concurrent.max=10 \
-	-Dhydra.query.debug=1 \
 	-Dhydra.tree.cache.maxSize=0 \
 	-Dhydra.tree.cache.maxMem=100M \
 	-Dhydra.tree.page.maxSize=200 \

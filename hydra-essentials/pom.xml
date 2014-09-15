@@ -17,21 +17,18 @@
   <parent>
     <groupId>com.addthis.hydra</groupId>
     <artifactId>hydra-parent</artifactId>
-    <version>4.3.3-SNAPSHOT</version>
+    <version>4.4.8-SNAPSHOT</version>
   </parent>
 
   <artifactId>hydra-essentials</artifactId>
   <name>Hydra Essentials Module</name>
   <description>log file processing library</description>
 
-
   <dependencies>
     <!-- addthis deps -->
     <dependency>
       <groupId>com.addthis</groupId>
       <artifactId>codec</artifactId>
-      <version>${hydra.dep.codec.version}</version>
     </dependency>
-    <!-- end addthis deps -->
   </dependencies>
 </project>

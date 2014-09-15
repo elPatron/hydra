@@ -13,182 +13,159 @@
  */
 package com.addthis.hydra.task.source;
 
-import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 
-import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
-import com.addthis.bundle.channel.DataChannelError;
 import com.addthis.bundle.core.Bundle;
 import com.addthis.bundle.core.BundleFactory;
-import com.addthis.bundle.core.list.ListBundle;
-import com.addthis.bundle.core.list.ListBundleFormat;
+import com.addthis.bundle.value.ValueArray;
 import com.addthis.bundle.value.ValueFactory;
+import com.addthis.bundle.value.ValueMap;
 import com.addthis.bundle.value.ValueObject;
-import com.addthis.codec.annotations.FieldConfig;
-import com.addthis.hydra.task.run.TaskRunConfig;
+import com.addthis.hydra.task.source.bundleizer.Bundleizer;
+import com.addthis.hydra.task.source.bundleizer.BundleizerFactory;
+
+import com.google.common.annotations.Beta;
+
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import org.apache.avro.Schema;
 import org.apache.avro.generic.GenericData;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.generic.GenericRecord;
-import org.apache.avro.io.Decoder;
+import org.apache.avro.io.BinaryDecoder;
 import org.apache.avro.io.DecoderFactory;
-import org.apache.avro.util.Utf8;
 
-/**
- * This data source <span class="hydra-summary">accepts avro streams</span>.
- *
- * @user-reference
- * @hydra-name avro
- */
-public class DataSourceAvro extends TaskDataSource implements BundleFactory {
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-    /**
-     * This field is required.
-     */
-    @FieldConfig(codable = true, required = true)
-    protected FactoryInputStream input;
-    @FieldConfig(codable = true, required = true)
-    private   String             schema;
-    @FieldConfig(codable = true, required = true)
-    private   HashSet<String>    fields;
+@Beta
+public class DataSourceAvro extends BundleizerFactory {
+    private static final Logger log = LoggerFactory.getLogger(DataSourceAvro.class);
 
-    private GenericDatumReader<GenericRecord> datumReader;
+    private final Schema inputSchema;
+    private final GenericDatumReader<GenericRecord> datumReader;
 
-    private final ListBundleFormat format = new ListBundleFormat();
-    private GenericRecord peekRecord;
-    private Bundle        peek;
-    private Decoder       decoder;
-    private InputStream   inputStream;
-
-    @Override public void init(TaskRunConfig config) {
-        setDatumReader(new GenericDatumReader<GenericRecord>(new Schema.Parser().parse(schema)));
-        try {
-            setInputStream(input.createInputStream(config));
-            setDecoder(DecoderFactory.get().binaryDecoder(inputStream, null));
-        } catch (IOException e) {
-            throw DataChannelError.promote(e);
-        }
+    public DataSourceAvro(String schema) {
+        this.inputSchema = new Schema.Parser().parse(schema);
+        this.datumReader = new GenericDatumReader<>(inputSchema);
     }
 
-    @Override
-    public Bundle next() throws DataChannelError {
-        Bundle next = peek();
-        peek = null;
-        return next;
-    }
-
-    @Override
-    public Bundle peek() throws DataChannelError {
-        if (peek == null) {
-            try {
-                peekRecord = datumReader.read(peekRecord, decoder);
-                GenericData genericData = datumReader.getData();
-                Bundle bundle = createBundle();
-                for (String field : fields) {
-                    ValueObject value = getValueObject(peekRecord, field, genericData);
-                    if (value != null) {
-                        bundle.setValue(bundle.getFormat().getField(field), value);
-                    }
-                }
-                peek = bundle;
-            } catch (EOFException e) {
-                return null;
-            } catch (IOException e) {
-                throw DataChannelError.promote(e);
+    @JsonCreator
+    public DataSourceAvro(JsonNode nodeSchema) {
+        if (nodeSchema.hasNonNull("_optional-strings")) {
+            ArrayNode fields = (ArrayNode) nodeSchema.get("fields");
+            ArrayNode optionalStrings = (ArrayNode) nodeSchema.get("_optional-strings");
+            Iterator<JsonNode> optionalStringIterator = optionalStrings.elements();
+            while (optionalStringIterator.hasNext()) {
+                String optionalString = optionalStringIterator.next().asText();
+                ObjectNode wrapper = ((ObjectNode) nodeSchema).objectNode();
+                ArrayNode unionType = wrapper.arrayNode();
+                unionType.add("null");
+                unionType.add("string");
+                wrapper.put("name", optionalString);
+                wrapper.set("type", unionType);
+                fields.add(wrapper);
             }
         }
-        return peek;
+        String schema = nodeSchema.toString();
+        inputSchema = new Schema.Parser().parse(schema);
+        datumReader = new GenericDatumReader<>(inputSchema);
     }
 
-    protected ValueObject getValueObject(GenericRecord genericRecord,
-                                         String fieldName,
-                                         GenericData genericData) throws IOException {
-        Schema.Field field = genericRecord.getSchema().getField(fieldName);
-        if (field == null) {
-            return null;
-        }
+    public static ValueObject<?> getValueObject(GenericRecord genericRecord,
+                                                Schema.Field field,
+                                                GenericData genericData) throws IOException {
         Object recordValue = genericRecord.get(field.name());
         if (recordValue == null) {
-            return null;
+            // for some reason this is popular for some bundles..?
+            return ValueFactory.create("");
         }
-        Schema schema = field.schema();
-        Schema.Type type = schema.getType();
-        return getValueObject(recordValue, schema, type, genericData);
+        return getValueObject(recordValue, field.schema(), genericData);
     }
 
-    private ValueObject getValueObject(Object recordValue, Schema schema, Schema.Type type, GenericData genericData) throws IOException {
-        ValueObject value = null;
-        switch (type) {
-        case ARRAY:
-            List<String> replacement = new ArrayList<>();
-            for (Utf8 av : (List<Utf8>) recordValue) {
-                replacement.add(av.toString());
+    public static ValueObject<?> getValueObject(Object recordValue,
+                                                Schema schema,
+                                                GenericData genericData) throws IOException {
+        switch (schema.getType()) {
+            case ARRAY:
+                List<Object> recordArray = (List<Object>) recordValue;
+                ValueArray replacement = ValueFactory.createArray(recordArray.size());
+                for (Object arrayValue : recordArray) {
+                    replacement.add(getValueObject(arrayValue,
+                                                   schema.getElementType(),
+                                                   genericData));
+                }
+                return replacement;
+            case BYTES:
+                return ValueFactory.create((byte[]) recordValue);
+            case ENUM:
+                return ValueFactory.create((double) recordValue);
+            case FIXED:
+                throw new RuntimeException("FIXED type is not supported");
+            case FLOAT:
+                // fall through
+            case DOUBLE:
+                return ValueFactory.create((double) recordValue);
+            case INT:
+                return ValueFactory.create((int) recordValue);
+            case LONG:
+                return ValueFactory.create((long) recordValue);
+            case MAP:
+                Map<String, Object> recordMap = (Map<String, Object>) recordValue;
+                ValueMap newMap = ValueFactory.createMap();
+                for (Map.Entry<String, Object> entry : recordMap.entrySet()) {
+                    String key = entry.getKey();
+                    Object mapValue = entry.getValue();
+                    ValueObject<?> newValue = getValueObject(mapValue,
+                                                             schema.getValueType(),
+                                                             genericData);
+                    newMap.put(key, newValue);
+                }
+                return newMap;
+            case NULL:
+                return null;
+            case STRING:
+                // fall through
+            case BOOLEAN:
+                return ValueFactory.create(recordValue.toString());
+            case UNION:
+                Schema unionSchema = schema.getTypes().get(genericData.resolveUnion(schema, recordValue));
+                return getValueObject(recordValue, unionSchema, genericData);
+            default:
+                throw new IOException("Unknown schema type: " + schema);
+        }
+    }
+
+    @Override public Bundleizer createBundleizer(final InputStream input,
+                                                 final BundleFactory factory) {
+        return new Bundleizer() {
+            private final BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(input, null);
+            private GenericRecord reusableRecord = null;
+
+            @Override public Bundle next() throws IOException {
+                if (decoder.isEnd()) {
+                    return null;
+                }
+                reusableRecord = datumReader.read(reusableRecord, decoder);
+                GenericData genericData = datumReader.getData();
+                Bundle bundle = factory.createBundle();
+                for (Schema.Field field : inputSchema.getFields()) {
+                    ValueObject<?> value = DataSourceAvro.getValueObject(
+                            reusableRecord, field, genericData);
+                    if (value != null) {
+                        bundle.setValue(bundle.getFormat().getField(field.name()), value);
+                    }
+                }
+                return bundle;
             }
-            value = ValueFactory.createValueArray(replacement);
-            break;
-        case BYTES:
-            value = ValueFactory.create((byte[]) recordValue);
-            break;
-        case ENUM:
-            value = ValueFactory.create((double) recordValue);
-            break;
-        case FIXED:
-            throw new RuntimeException("FIXED type is not supported");
-        case FLOAT:
-        case DOUBLE:
-            value = ValueFactory.create((double) recordValue);
-            break;
-        case INT:
-            value = ValueFactory.create((int) recordValue);
-            break;
-        case LONG:
-            value = ValueFactory.create((long) recordValue);
-            break;
-        case MAP:
-            throw new IOException("MAP types are not currently supported");
-        case NULL:
-            break;
-        case STRING:
-        case BOOLEAN:
-            value = ValueFactory.create(recordValue.toString());
-            break;
-        case UNION:
-            Schema unionSchema = schema.getTypes().get(genericData.resolveUnion(schema, recordValue));
-            value = getValueObject(recordValue, unionSchema, unionSchema.getType(), genericData);
-            break;
-        default:
-            throw new IOException("Unknown schema type: " + type);
-        }
-        return value;
-    }
-
-    @Override
-    public void close() {
-    }
-
-    @Override
-    public Bundle createBundle() {
-        return new ListBundle(format);
-    }
-
-    public void setInputStream(InputStream inputStream) {
-        this.inputStream = inputStream;
-    }
-
-    public void setDatumReader(GenericDatumReader<GenericRecord> datumReader) {
-        this.datumReader = datumReader;
-    }
-
-    public void setDecoder(Decoder decoder) {
-        this.decoder = decoder;
-    }
-
-    public void setFields(HashSet<String> fields) {
-        this.fields = fields;
+        };
     }
 }

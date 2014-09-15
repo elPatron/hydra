@@ -93,4 +93,5 @@ public class DataOutputFile extends AbstractDataOutput {
     AbstractOutputWriter getWriter() {
         return writer;
     }
+
 }

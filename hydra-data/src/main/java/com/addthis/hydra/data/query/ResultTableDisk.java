@@ -27,7 +27,6 @@ import com.addthis.bundle.table.DataTableFactory;
 import com.addthis.hydra.data.io.DiskBackedList2;
 import com.addthis.hydra.data.io.DiskBackedList2.ItemCodec;
 
-
 /**
  * a disk-backed implementation of DataTable using DiskBackedList.
  * designed to be temporary and never re-opened.  does not persist
@@ -43,7 +42,7 @@ public class ResultTableDisk extends ResultTable implements ItemCodec<Bundle> {
 
     public ResultTableDisk(DataTableFactory factory, File tmpFile) throws IOException {
         super(factory, new DiskBackedList2<Bundle>(null));
-        diskList = (DiskBackedList2<Bundle>) getBackingList();
+        diskList = (DiskBackedList2<Bundle>) delegate();
         diskList.setCodec(this);
         this.diskFile = tmpFile;
     }
@@ -53,7 +52,7 @@ public class ResultTableDisk extends ResultTable implements ItemCodec<Bundle> {
         return "(RDB:" + diskFile + ":" + diskList.size() + ")";
     }
 
-    protected void finalize() {
+    @Override protected void finalize() {
         if (!closed) {
             System.err.println("finalizing ResultDiskBacked via delete rows=" + size() + " @ " + diskFile);
             delete();
@@ -94,18 +93,13 @@ public class ResultTableDisk extends ResultTable implements ItemCodec<Bundle> {
     }
 
     @Override
-    public void sort(final Comparator<Bundle> comp) {
-        try {
-            diskList.sort(new Comparator<Bundle>() {
-                @Override
-                public int compare(Bundle o1, Bundle o2) {
-                    return comp.compare(o1, o2);
-                }
-            });
-        } catch (IOException io) {
-            System.err.println("io exception during sort");
-        }
-
+    public void sort(final Comparator<? super Bundle> comp) {
+        diskList.sort(new Comparator<Bundle>() {
+            @Override
+            public int compare(Bundle o1, Bundle o2) {
+                return comp.compare(o1, o2);
+            }
+        });
     }
 
     @Override

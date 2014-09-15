@@ -16,7 +16,7 @@
   <parent>
     <groupId>com.addthis.hydra</groupId>
     <artifactId>hydra-parent</artifactId>
-    <version>4.3.3-SNAPSHOT</version>
+    <version>4.4.8-SNAPSHOT</version>
   </parent>
 
   <artifactId>hydra-uber</artifactId>
@@ -35,7 +35,6 @@
         <dependency>
           <groupId>com.sleepycat</groupId>
           <artifactId>je</artifactId>
-          <version>${hydra.dep.sleepycat.je.version}</version>
           <scope>compile</scope>
         </dependency>
       </dependencies>
@@ -48,13 +47,20 @@
     <dependency>
       <groupId>com.addthis.hydra</groupId>
       <artifactId>hydra-main</artifactId>
-      <version>${project.version}</version>
     </dependency>
 
+    <!-- logging -->
     <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-log4j12</artifactId>
-      <version>${dep.slf4j.version}</version>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-slf4j-impl</artifactId>
     </dependency>
   </dependencies>
 
@@ -81,6 +87,13 @@
                     <exclude>META-INF/*.SF</exclude>
                     <exclude>META-INF/*.DSA</exclude>
                     <exclude>META-INF/*.RSA</exclude>
+                  </excludes>
+                </filter>
+                <!-- log4j2's plugin configuration is not append-friendly; must use system properties for shaded jar -->
+                <filter>
+                  <artifact>com.addthis.hydra:hydra-uber</artifact>
+                  <excludes>
+                    <exclude>META-INF/org/apache/logging/log4j/core/config/plugins/Log4j2Plugins.dat</exclude>
                   </excludes>
                 </filter>
               </filters>

@@ -144,6 +144,9 @@ public class MeshQueryMaster extends ChannelOutboundHandlerAdapter {
                 spawnDataStoreHandler.close();
             }
             meshy.close();
+            if (tracker != null) {
+                tracker.close();
+            }
         } catch (Exception e) {
             log.error("arbitrary exception during mqmaster shutdown", e);
         }

@@ -13,82 +13,49 @@
  */
 package com.addthis.hydra.task.output.tree;
 
-import javax.management.ObjectName;
-import javax.servlet.ServletException;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
 import java.io.File;
 import java.io.IOException;
 
-import java.lang.management.ManagementFactory;
-
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.ServerSocket;
-
-import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 
-import com.addthis.basis.jmx.MBeanRemotingSupport;
 import com.addthis.basis.util.Bench;
 import com.addthis.basis.util.Bytes;
 import com.addthis.basis.util.Files;
 import com.addthis.basis.util.JitterClock;
 import com.addthis.basis.util.Parameter;
-import com.addthis.basis.util.Strings;
 
-import com.addthis.bundle.channel.DataChannelError;
-import com.addthis.bundle.channel.DataChannelOutput;
 import com.addthis.bundle.core.Bundle;
 import com.addthis.bundle.core.BundleField;
 import com.addthis.bundle.core.kvp.KVBundle;
 import com.addthis.bundle.value.ValueObject;
 import com.addthis.codec.annotations.FieldConfig;
 import com.addthis.codec.codables.Codable;
-import com.addthis.codec.codables.SuperCodable;
-import com.addthis.codec.json.CodecJSON;
-import com.addthis.hydra.data.query.Query;
-import com.addthis.hydra.data.query.QueryException;
 import com.addthis.hydra.data.query.engine.QueryEngine;
 import com.addthis.hydra.data.query.source.LiveMeshyServer;
 import com.addthis.hydra.data.query.source.LiveQueryReference;
-import com.addthis.hydra.data.query.source.QueryHandle;
-import com.addthis.hydra.data.query.source.QuerySource;
-import com.addthis.hydra.data.tree.ConcurrentTree;
+import com.addthis.hydra.data.tree.concurrent.ConcurrentTree;
 import com.addthis.hydra.data.tree.DataTree;
-import com.addthis.hydra.data.tree.TreeCommonParameters;
+import com.addthis.hydra.data.tree.concurrent.TreeCommonParameters;
 import com.addthis.hydra.data.util.TimeField;
 import com.addthis.hydra.store.db.CloseOperation;
 import com.addthis.hydra.task.output.DataOutputTypeList;
-import com.addthis.hydra.task.output.tree.TreeMapperStats.Snapshot;
 import com.addthis.hydra.task.run.TaskRunConfig;
 import com.addthis.meshy.MeshyServer;
 
-import org.apache.commons.lang3.CharEncoding;
+import com.google.common.base.Throwables;
 
-import org.eclipse.jetty.server.Request;
-import org.eclipse.jetty.server.Server;
-import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import io.netty.channel.DefaultChannelProgressivePromise;
-import io.netty.util.concurrent.ImmediateEventExecutor;
 
 /**
  * This output <span class="hydra-summary">transforms bundle streams into trees for statistical analysis and data queries</span>
@@ -125,10 +92,9 @@ import io.netty.util.concurrent.ImmediateEventExecutor;
  * @user-reference
  * @hydra-name tree
  */
-public final class TreeMapper extends DataOutputTypeList implements QuerySource, SuperCodable {
+public final class TreeMapper extends DataOutputTypeList implements Codable {
 
     private static final Logger log = LoggerFactory.getLogger(TreeMapper.class);
-    private static final DecimalFormat percent = new DecimalFormat("00.0%");
     private static final SimpleDateFormat date = new SimpleDateFormat("yyMMdd-HHmmss");
 
     private enum BENCH {
@@ -140,83 +106,27 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
     }
 
     /**
-     * Default is either "mapper.http" configuration value or true.
-     */
-    @FieldConfig(codable = true)
-    private boolean enableHttp = Parameter.boolValue("mapper.http", true);
-
-    /**
-     * Default is either "mapper.query" configuration value or false.
-     */
-    @FieldConfig(codable = true)
-    private boolean enableQuery = Parameter.boolValue("mapper.query", false);
-
-
-    /**
-     * Default is either "mapper.minion.usejmx" configuration value or true.
-     */
-    @FieldConfig(codable = true)
-    private boolean enableJmx = Parameter.boolValue("mapper.minion.usejmx", true);
-
-    /**
      * Default is either "mapper.printinterval" configuration value or 1000.
      */
-    @FieldConfig(codable = true)
-    private long printinterval = Parameter.longValue("mapper.printinterval", 1000L);
-
-    /**
-     * Default is "mapper.localhost" configuration value.
-     */
-    @FieldConfig(codable = true)
-    private String localhost = Parameter.value("mapper.localhost");
-
-    /**
-     * Default is either "mapper.port" configuration value or 0.
-     */
-    @FieldConfig(codable = true)
-    private int port = Parameter.intValue("mapper.port", 0);
-
-    /**
-     * Default is either "batch.brokerHost" configuration value or "localhost".
-     */
-    @FieldConfig(codable = true)
-    private String batchBrokerHost = Parameter.value("batch.brokerHost", "localhost");
-
-    /**
-     * Default is either "batch.brokerPort" configuration value or 5672.
-     */
-    @FieldConfig(codable = true)
-    private String batchBrokerPort = Parameter.value("batch.brokerPort", "5672");
+    @FieldConfig private long printinterval = Parameter.longValue("mapper.printinterval", 1000L);
 
     /**
      * Definition of the tree structure.
      * Consists of a mapping from a name to one or more path elements.
      * One of these path elements will serve as the root of the tree.
      */
-    @FieldConfig(codable = true)
-    private HashMap<String, PathElement[]> paths;
+    @FieldConfig private Map<String, PathElement[]> paths;
 
     /**
-     * Optional path that is processed once
-     * at the beginning of execution.
-     * The input to this path is an empty bundle.
+     * Optional path that is processed once at the beginning of execution. The input to this path is an empty bundle.
      */
-    @FieldConfig(codable = true)
-    private TreeMapperPathReference pre;
+    @FieldConfig private PathElement[] pre;
 
-    /**
-     * Path that will serve as the root of the output tree.
-     */
-    @FieldConfig(codable = true)
-    private TreeMapperPathReference root;
+    /** Path that will serve as the root of the output tree. */
+    @FieldConfig private PathElement[] root;
 
-    /**
-     * Optional path that is processed once
-     * at the end of execution.
-     * The input to this path is an empty bundle.
-     */
-    @FieldConfig(codable = true)
-    private TreeMapperPathReference post;
+    /** Optional path that is processed once at the end of execution. The input to this path is an empty bundle. */
+    @FieldConfig private PathElement[] post;
 
     /**
      * Optional specify whether to perform
@@ -229,8 +139,7 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
      * In the event of invalid tree pages the correct action
      * is to revert the task.
      */
-    @FieldConfig(codable = true)
-    private ValidateMode validateTree = ValidateMode.NONE;
+    @FieldConfig private ValidateMode validateTree = ValidateMode.NONE;
 
     /**
      * If tree validation has been validated (see {@link #validateTree validateTree}
@@ -238,8 +147,7 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
      * repairs will be made when an error is detected.
      * Default is false.
      */
-    @FieldConfig(codable = true)
-    private boolean repairTree = false;
+    @FieldConfig private boolean repairTree = false;
 
     /**
      * Optional sample rate for applying
@@ -247,64 +155,48 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
      * than one than apply once every N runs.
      * Default is one.
      */
-    @FieldConfig(codable = true)
-    private int postRate = 1;
+    @FieldConfig private int postRate = 1;
 
     /**
      * One or more queries that are executed
      * after the tree has been constructed.
      */
-    @FieldConfig(codable = true)
-    private PathOutput[] outputs;
+    @FieldConfig private PathOutput[] outputs;
 
-    @FieldConfig(codable = true)
-    private boolean live = Parameter.boolValue("mapper.live", false);
+    @FieldConfig private boolean live;
 
-    @FieldConfig(codable = true)
-    private String liveHost = Parameter.value("mapper.live.host", "localhost");
+    @FieldConfig private String liveHost;
 
-    @FieldConfig(codable = true)
-    private int livePort = Parameter.intValue("mapper.live.port", -1);
+    @FieldConfig private int livePort;
 
-    @FieldConfig(codable = true)
-    private Integer nodeCache;
+    @FieldConfig private Integer nodeCache;
 
-    @FieldConfig(codable = true)
-    private Integer trashInterval;
+    @FieldConfig private Integer trashInterval;
 
-    @FieldConfig(codable = true)
-    private Integer trashTimeLimit;
+    @FieldConfig private Integer trashTimeLimit;
 
-    @FieldConfig(codable = true)
-    private TimeField timeField;
+    @FieldConfig private TimeField timeField;
 
-    @FieldConfig(codable = true)
-    private boolean stats = true;
+    @FieldConfig private boolean stats = true;
 
     /**
      * Set of strings that enumerate the features to process.
      */
-    @FieldConfig(codable = true)
-    private HashSet<String> features;
+    @FieldConfig private HashSet<String> features;
 
-    @FieldConfig(codable = true)
-    private StoreConfig storage;
+    @FieldConfig private StoreConfig storage;
 
-    @FieldConfig(codable = true)
-    private int maxErrors = 0;
+    @FieldConfig private int maxErrors = 0;
+
+    @FieldConfig private boolean profiling = false;
 
     private final ConcurrentMap<String, BundleField> fields    = new ConcurrentHashMap<>();
     private final IndexHash<PathElement[]>           pathIndex = new IndexHash();
 
     private DataTree tree;
     private Bench    bench;
-    private Server   jetty;
     private long     startTime;
 
-    private ObjectName           jmxname;
-    private MBeanRemotingSupport jmxremote;
-
-    private QueryEngine     queryEngine;
     private MeshyServer     liveQueryServer;
     private TreeMapperStats mapstats;
     private TaskRunConfig   config;
@@ -317,54 +209,9 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
     private final AtomicLong    mapWriteTime    = new AtomicLong(0);
     private final AtomicLong    processed       = new AtomicLong(0);
     private final AtomicLong    processNodes    = new AtomicLong(0);
-    private final AtomicBoolean calledExit      = new AtomicBoolean(false);
-    private final AtomicBoolean forceExit       = new AtomicBoolean(false);
-    private final AtomicBoolean profiling       = new AtomicBoolean(false);
     private       int           bundleErrors    = 0;
     private final AtomicLong    lastBundleTime  = new AtomicLong(0);
 
-    /** */
-    private static class IndexHash<V> {
-
-        private HashMap<String, Integer> map  = new HashMap<>();
-        private ArrayList<V>             list = new ArrayList<>(64);
-
-        public int add(String key, V value) {
-            int pos = list.size();
-            map.put(key, pos);
-            list.add(value);
-            return pos;
-        }
-
-        public V getValueByKey(String key) {
-            return getValueByIndex(map.get(key));
-        }
-
-        public V getValueByIndex(Integer pos) {
-            return list.get(pos);
-        }
-
-        public Integer getIndex(String key) {
-            return map.get(key);
-        }
-    }
-
-    /** */
-    public static final class StoreConfig implements Codable {
-
-        @FieldConfig(codable = true)
-        Integer memSample;
-        @FieldConfig(codable = true)
-        Integer maxCacheSize;
-        @FieldConfig(codable = true)
-        Integer maxPageSize;
-        @FieldConfig(codable = true)
-        Long    maxCacheMem;
-        @FieldConfig(codable = true)
-        Integer maxPageMem;
-    }
-
-    /** */
     private void resolve() throws Exception {
         fields.clear();
         if (features != null) {
@@ -380,17 +227,22 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
                 pathIndex.add(me.getKey(), pe);
             }
         }
-        if (pre != null) {
-            pre.resolve(this);
-        }
-        if (root == null && paths != null && paths.size() > 0) {
-            root = new TreeMapperPathReference(paths.keySet().iterator().next());
-        }
         if (root != null) {
-            root.resolve(this);
+            for (PathElement p : root) {
+                p.resolve(this);
+            }
+        } else if ((paths != null) && !paths.isEmpty()) {
+            root = paths.values().iterator().next();
+        }
+        if (pre != null) {
+            for (PathElement p : pre) {
+                p.resolve(this);
+            }
         }
         if (post != null) {
-            post.resolve(this);
+            for (PathElement p : post) {
+                p.resolve(this);
+            }
         }
         if (outputs != null) {
             for (PathOutput out : outputs) {
@@ -409,87 +261,35 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
 
     @Override
     public void open(TaskRunConfig config) {
+        this.config = config;
         try {
-            _init(config);
-        } catch (Exception ex) {
-            throw new RuntimeException(ex);
-        }
-    }
+            mapstats = new TreeMapperStats();
+            resolve();
 
-    private void _init(TaskRunConfig runConfig) throws Exception {
-        config = runConfig;
-        mapstats = new TreeMapperStats(log);
+            if (nodeCache != null) TreeCommonParameters.setDefaultCleanQueueSize(nodeCache);
+            if (trashInterval != null) TreeCommonParameters.setDefaultTrashInterval(trashInterval);
+            if (trashTimeLimit != null) TreeCommonParameters.setDefaultTrashTimeLimit(trashTimeLimit);
+            if (storage != null) storage.setStaticFieldsFromMembers();
 
-        resolve();
+            log.info("[init] live={}, target={} job={}", live, root, this.config.jobId);
 
-        if (nodeCache != null) TreeCommonParameters.setDefaultCleanQueueSize(nodeCache);
-        if (trashInterval != null) TreeCommonParameters.setDefaultTrashInterval(trashInterval);
-        if (trashTimeLimit != null) TreeCommonParameters.setDefaultTrashTimeLimit(trashTimeLimit);
-        if (storage != null) {
-            if (storage.maxCacheSize != null)
-                TreeCommonParameters.setDefaultMaxCacheSize(storage.maxCacheSize);
-            if (storage.maxCacheMem != null)
-                TreeCommonParameters.setDefaultMaxCacheMem(storage.maxCacheMem);
-            if (storage.maxPageSize != null)
-                TreeCommonParameters.setDefaultMaxPageSize(storage.maxCacheSize);
-            if (storage.maxPageMem != null)
-                TreeCommonParameters.setDefaultMaxPageMem(storage.maxPageMem);
-            if (storage.memSample != null)
-                TreeCommonParameters.setDefaultMemSample(storage.memSample);
-        }
+            Path treePath = Paths.get(config.dir, "data");
+            tree = new ConcurrentTree(Files.initDirectory(treePath.toFile()));
+            bench = new Bench(EnumSet.allOf(BENCH.class), 1000);
 
-        if (Strings.isEmpty(localhost)) {
-            localhost = InetAddress.getLocalHost().getHostAddress();
-        }
-        log.info("[init] java=" + System.getProperty("java.vm.version") + " query=" + enableQuery +
-                 " http=" + enableHttp + " jmx=" + enableJmx + " live=" + live);
-        log.info("[init] host=" + localhost + " port=" + port + " target=" + root + " job=" +
-                 config.jobId);
-
-        Path treePath = Paths.get(runConfig.dir, "data");
-        tree = new ConcurrentTree(Files.initDirectory(treePath.toFile()));
-        bench = new Bench(EnumSet.allOf(BENCH.class), 1000);
-
-        if (enableHttp) {
-            jetty = new Server(port > 0 ? port++ : 0);
-            jetty.start();
-            int httpPort = jetty.getConnectors()[0].getLocalPort();
-            log.info("[init.http] http://" + localhost + ":" + httpPort + "/");
-            Files.write(new File("job.port"), Bytes.toBytes(Integer.toString(httpPort)), false);
-        }
-
-        if (enableJmx) {
-            int queryPort = 0;
-            jmxname = new ObjectName("com.addthis.hydra:type=Hydra,node=" + queryPort);
-            ManagementFactory.getPlatformMBeanServer().registerMBean(mapstats, jmxname);
-            ServerSocket ss = new ServerSocket();
-            ss.setReuseAddress(true);
-            ss.bind(port > 0 ? new InetSocketAddress(port++) : null);
-            int jmxport = ss.getLocalPort();
-            ss.close();
-            if (jmxport == -1) {
-                log.warn("[init.jmx] failed to get a port");
-            } else {
-                try {
-                    jmxremote = new MBeanRemotingSupport(jmxport);
-                    jmxremote.start();
-                    log.info("[init.jmx] port=" + jmxport);
-                } catch (Exception e) {
-                    log.warn("[init.jmx] err=" + e);
-                }
+            if (this.config.jobId != null && live && livePort > -1) {
+                QueryEngine liveQueryEngine = new QueryEngine(tree);
+                connectToMesh(treePath.toFile(), config.jobId, liveQueryEngine);
             }
-        }
 
-        if (config.jobId != null && live && livePort > -1) {
-            QueryEngine liveQueryEngine = new QueryEngine(tree);
-            connectToMesh(treePath.toFile(), runConfig.jobId, liveQueryEngine);
-        }
+            startTime = System.currentTimeMillis();
 
-        startTime = System.currentTimeMillis();
-
-        if (pre != null) {
-            log.warn("pre-chain: " + pre);
-            processBundle(new KVBundle(), pre);
+            if (pre != null) {
+                log.warn("pre-chain: {}", pre);
+                processBundle(new KVBundle(), pre);
+            }
+        } catch (Exception ex) {
+            Throwables.propagate(ex);
         }
     }
 
@@ -498,34 +298,28 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
         liveQueryServer = new LiveMeshyServer(livePort, queryReference);
     }
 
-    /** */
     public BundleField bindField(String key) {
         return getFormat().getField(key);
     }
 
-    @Override
-    public String toString() {
-        return "Hydra(" + localhost + "," + port + ")";
-    }
-
     // ------------------------- PROCESSING ENGINE -------------------------
 
-    public boolean isInterrupted() {
-        return calledExit.get();
-    }
-
     public boolean isProfiling() {
-        return profiling.get();
+        return profiling;
     }
 
-    public void updateProfile(PathElement pathElement, long duration) {
+    public static void updateProfile(PathElement pathElement, long duration) {
         pathElement.updateProfile(duration);
     }
 
-    public TreeMapperPathReference createBundleTarget(String rule) {
-        TreeMapperPathReference pt = new TreeMapperPathReference(rule);
-        pt.resolve(this);
-        return pt;
+
+    public void processBundle(Bundle bundle, TreeMapperPathReference target) {
+        Integer unit = target.getTargetUnit();
+        if (unit == null) {
+            log.warn("[deliver] target missing unit: {}", target);
+            return;
+        }
+        processBundle(bundle, pathIndex.getValueByIndex(unit));
     }
 
     /**
@@ -543,22 +337,18 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
      * and target are examined and either delivered locally or sent to the
      * router for delivery to another hydra node.
      */
-    public void processBundle(Bundle bundle, TreeMapperPathReference target) {
+    public void processBundle(Bundle bundle, PathElement[] path) {
         try {
-            Integer unit = target.getTargetUnit();
-            if (unit == null) {
-                log.warn("[deliver] target missing unit: " + target);
-                return;
-            }
             long bundleTime;
             try {
                 bundleTime = getBundleTime(bundle);
             } catch (NumberFormatException nfe) {
-                log.warn("error reading TimeField, : " + timeField.getField() + "\nbundle: " + bundle.toString());
+                log.warn("error reading TimeField, : {}\nbundle: {}", timeField.getField(), bundle);
                 // in case of junk data, if the source is flexable we'll continue processing bundles
                 // until maxErrors is reached
                 if (bundleErrors++ < maxErrors) {
-                    log.warn("bundleErrors:" + bundleErrors + " is less than max errors: " + maxErrors + ", skipping this bundle");
+                    log.warn("bundleErrors:{} is less than max errors: {}, skipping this bundle", bundleErrors,
+                             maxErrors);
                     return;
                 } else {
                     throw new RuntimeException("Invalid bundle: " + bundle + " unable to read TimeField due to NumberFormatException");
@@ -566,7 +356,7 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
             }
             bench.addEvents(BENCH.UNITS, 1);
             bench.addEvents(BENCH.TIME, bundleTime >> 8);
-            processPath(bundle, pathIndex.getValueByIndex(unit));
+            processPath(bundle, path);
         } catch (RuntimeException ex) {
             throw ex;
         } catch (Exception ex)  {
@@ -582,9 +372,7 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
         if (timeField != null) {
             ValueObject vo = bundle.getValue(bundle.getFormat().getField(timeField.getField()));
             if (vo == null) {
-                if (log.isDebugEnabled()) {
-                    log.debug("missing time " + timeField.getField() + " in [" + bundle.getCount() + "] --> " + bundle);
-                }
+                log.debug("missing time {} in [{}] --> {}", timeField.getField(), bundle.getCount(), bundle);
             } else {
                 bundleTime = timeField.toUnix(vo);
             }
@@ -618,12 +406,15 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
                 long proc = processed.get();
                 // prevent multiple Hydra threads from competing to change
                 // streamXX,lastTime vars
-                if (benchCalls.getAndIncrement() % 20 == 0 && stats) {
+                if (((benchCalls.getAndIncrement() % 20) == 0) && stats) {
                     long streamCounts = streamReadCount.getAndSet(0);
                     long streamTotals = streamReadTotal.addAndGet(streamCounts) / (1024 * 1024);
                     long mark = JitterClock.globalTime();
                     long streamRate = (streamCounts * 1000L) / (mark - lastHeaderTime.getAndSet(mark));
-                    log.info("tread tmap  input proc  rules  nodes bundles cache..hit% dbs   " + "mem   bundleTime [" + streamCounts + "," + streamRate + "/s," + streamTotals + "MM]");
+                    log.info(
+                            "tread tmap  input proc  rules  nodes bundles cache..hit% dbs   mem   bundleTime [{}," +
+                            "{}/s,{}MM]",
+                            streamCounts, streamRate, streamTotals);
                 }
                 long benchtime = bench.getEventCount(BENCH.TIME);
                 long benchlocal = bench.getEventCount(BENCH.UNITS);
@@ -634,7 +425,7 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
                 long time_write_map = mapWriteTime.getAndSet(0);
                 long time_read_wait = streamWaitime.getAndSet(0);
 
-                Snapshot snap = new Snapshot();
+                TreeMapperStats.Snapshot snap = new TreeMapperStats.Snapshot();
                 snap.streamRate = streamRate;
                 snap.mapWriteTime = benchlocal > 0 ? time_write_map / benchlocal : time_write_map;
                 snap.streamWaitTime = (benchlocal > 0 ? time_read_wait / benchlocal : time_read_wait);
@@ -653,186 +444,9 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
                 if (!stats) {
                     return;
                 }
-                StringBuilder msg = new StringBuilder();
-                msg.append(pad(snap.streamWaitTime, 6));
-                msg.append(pad(snap.mapWriteTime, 6));
-                msg.append(pad(snap.streamRate, 6));
-                msg.append(pad(snap.localPacketRate, 6));
-                msg.append(pad(snap.ruleProcessRate, 7));
-                msg.append(pad(snap.nodesUpdated, 6));
-                msg.append(pad(snap.totalPackets, 8));
-                msg.append(pad(snap.treeCacheSize, 6));
-                msg.append(pad(percent.format(snap.treeCacheHitRate), 6));
-                msg.append(pad(snap.treeDbCount, 6));
-                msg.append(pad(snap.freeMemory, 6));
-                msg.append(pad(snap.averageTimestamp, 14));
-                log.info(msg.toString());
+                log.info(snap.toFormattedString());
             }
         }
-    }
-
-    /**
-     * number right pad utility for log data
-     */
-    private static String pad(long v, int chars) {
-        String sv = Long.toString(v);
-        String[] opt = new String[]{"K", "M", "B", "T"};
-        DecimalFormat[] dco = new DecimalFormat[]{new DecimalFormat("0.00"), new DecimalFormat("0.0"), new DecimalFormat("0")};
-        int indx = 0;
-        double div = 1000d;
-        outer:
-        while (sv.length() > chars - 1 && indx < opt.length) {
-            for (DecimalFormat dc : dco) {
-                sv = dc.format(v / div).concat(opt[indx]);
-                if (sv.length() <= chars - 1) {
-                    break outer;
-                }
-            }
-            div *= 1000;
-            indx++;
-        }
-        return Strings.padright(sv, chars);
-    }
-
-    /**
-     * string right pad utility for log data
-     */
-    private static String pad(String s, int chars) {
-        return Strings.padright(s, chars);
-    }
-
-    // ------------------------- HTTP SERVICES -------------------------
-
-    /**
-     * used to support cluster querying and query/admin console.
-     */
-    public final class HTTP extends AbstractHandler {
-
-        private int getIntParam(HttpServletRequest request, String key, int def) {
-            String v = request.getParameter(key);
-            return v != null ? Integer.parseInt(v) : def;
-        }
-
-        private String getParam(HttpServletRequest request, String key, String def) {
-            String v = request.getParameter(key);
-            return v != null ? v : def;
-        }
-
-
-        @Override
-        public void handle(String target, Request request, HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse) throws IOException, ServletException {
-            httpServletResponse.setCharacterEncoding(CharEncoding.UTF_8);
-            if (target.equals("/ping")) {
-                httpServletResponse.getWriter().write("ok");
-            } else if (target.equals("/do")) {
-                List<String> did = new LinkedList<>();
-                try {
-                    if (getParam(request, "sysExit", "0").equals("1")) {
-                        did.add("system exit");
-                        calledExit.set(true);
-                        new Thread() {
-                            public void run() {
-                                try {
-                                    setName("http do sysExit");
-                                    Thread.sleep(500);
-                                } catch (Exception e) {
-                                    e.printStackTrace();
-                                }
-                                System.exit(0);
-                            }
-                        }.start();
-                    }
-                    if (getParam(request, "forceExit", "0").equals("1")) {
-                        forceExit.set(true);
-                        did.add("forcing exit");
-                    }
-                    if (getParam(request, "treeSync", "0").equals("1")) {
-                        tree.sync();
-                        did.add("synced tree");
-                    }
-                } catch (Exception ex) {
-                    did.add(ex.toString());
-                }
-                httpServletResponse.getWriter().write(Strings.join(did.toArray(), ","));
-            } else if (target.equals("/profile")) {
-                boolean was = profiling.get();
-                boolean is = getIntParam(request, "enable", was ? 1 : 0) == 1;
-                profiling.set(is);
-                if (getIntParam(request, "dump", 0) == 1) {
-                    String json;
-                    try {
-                        json = CodecJSON.encodeString(config);
-                    } catch (Exception e) {
-                        throw new IOException(e);
-                    }
-                    Files.write(new File("job.profile"), Bytes.toBytes(json), false);
-                    httpServletResponse.getWriter().write(json);
-                } else {
-                    httpServletResponse.getWriter().write("{profiling:" + is + "}");
-                }
-            }
-            request.setHandled(true);
-        }
-    }
-
-    @Override
-    public QueryHandle query(final Query query, final DataChannelOutput consumer) throws QueryException {
-        if (Thread.interrupted()) {
-            log.warn("[query] caught/reset thread in a previously interrupted state :: " + Thread.currentThread());
-        }
-        return new QueryThread(query, consumer);
-    }
-
-    /** */
-    private class QueryThread extends Thread implements QueryHandle {
-
-        private Query query;
-        private DataChannelOutput consumer;
-
-        QueryThread(Query query, DataChannelOutput consumer) {
-            setName("QT query=" + query.uuid() + " consumer=" + consumer);
-            this.query = query;
-            this.consumer = consumer;
-            start();
-        }
-
-        public void run() {
-            if (query.isTraced()) {
-                Query.emitTrace("query begin " + query.uuid() + " " + query + " to " + consumer);
-            }
-            try {
-                queryEngine.search(query, consumer,
-                        new DefaultChannelProgressivePromise(null, ImmediateEventExecutor.INSTANCE));
-                consumer.sendComplete();
-            } catch (QueryException e) {
-                consumer.sourceError(e);
-                log.warn("query exception " + query.uuid() + " " + e);
-            } catch (Exception e) {
-                consumer.sourceError(new QueryException(e));
-                log.warn("query error " + query.uuid() + " " + e, e);
-                } finally {
-                if (query.isTraced()) {
-                    Query.emitTrace("query end " + query.uuid());
-                }
-            }
-        }
-
-        @Override
-        public void cancel(String message) {
-            if (query.isTraced()) {
-                Query.emitTrace("query interrupt " + query.uuid());
-            }
-            interrupt();
-        }
-    }
-
-    @Override
-    public void noop() {
-    }
-
-    @Override
-    public boolean isClosed() {
-        return false;
     }
 
     @Override
@@ -878,17 +492,16 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
                     doPost = true;
                 }
                 if (doPost) {
-                    log.warn("post-chain: " + post);
+                    log.warn("post-chain: {}", post);
                     processBundle(new KVBundle(), post);
                     processed.incrementAndGet();
                 } else {
-                    log.warn("skipping post-chain: " + post +
-                             ". Sample rate is " + sample + " out of " + postRate);
+                    log.warn("skipping post-chain: {}. Sample rate is {} out of {}", post, sample, postRate);
                 }
             }
             if (outputs != null) {
                 for (PathOutput output : outputs) {
-                    log.warn("output: " + output);
+                    log.warn("output: {}", output);
                     output.exec(tree);
                 }
             }
@@ -897,7 +510,6 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
                 liveQueryServer.close();
             }
             // disable web interface
-            jetty.stop();
             boolean doValidate;
             switch (validateTree) {
                 case ALL:
@@ -917,30 +529,13 @@ public final class TreeMapper extends DataOutputTypeList implements QuerySource,
                 closeOperation = repairTree ? CloseOperation.REPAIR : CloseOperation.TEST;
             }
             tree.close(false, closeOperation);
-            if (jmxname != null) {
-                log.info("[close] unregistering JMX");
-                ManagementFactory.getPlatformMBeanServer().unregisterMBean(jmxname);
-                if (jmxremote != null) {
-                    jmxremote.stop();
-                    jmxremote = null;
-                }
-            }
         } catch (Exception ex) {
             throw new RuntimeException(ex);
         }
     }
 
     @Override
-    public void sourceError(DataChannelError err) {
+    public void sourceError(Throwable err) {
         // TODO
-    }
-
-
-    @Override
-    public void postDecode() {
-    }
-
-    @Override
-    public void preEncode() {
     }
 }

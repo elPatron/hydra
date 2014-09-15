@@ -30,6 +30,8 @@ import com.addthis.basis.util.TokenReplacerOverflowException;
 import com.addthis.codec.plugins.PluginMap;
 import com.addthis.codec.plugins.PluginRegistry;
 import com.addthis.hydra.data.util.CommentTokenizer;
+import com.addthis.hydra.job.entity.JobMacro;
+import com.addthis.hydra.job.spawn.Spawn;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
@@ -72,12 +74,12 @@ public class JobExpand {
                     throw new RuntimeException(ex);
                 }
             }
-            JobMacro macro = spawn.getSpawnState().macros.get(label);
+            JobMacro macro = spawn.getJobMacroManager().getEntity(label);
             String target = null;
             if (macro != null) {
                 target = macro.getMacro();
             } else {
-                List<String> aliases = spawn.aliasToJobs(label);
+                List<String> aliases = spawn.getAliasManager().aliasToJobs(label);
                 if (aliases != null) {
                     target = joiner.join(aliases);
                 }
@@ -151,7 +153,7 @@ public class JobExpand {
         }.process(input);
     }
 
-    static String macroTemplateParams(String expandedJob, Collection<JobParameter> params)
+    public static String macroTemplateParams(String expandedJob, Collection<JobParameter> params)
             throws TokenReplacerOverflowException {
         if (params != null && expandedJob != null) {
             final HashMap<String, String> map = new HashMap<>();
@@ -258,8 +260,10 @@ public class JobExpand {
 
     /**
      * recursively expand macros
+     * 
+     * @throws IllegalStateException if expanded config exceeds the max length allowed.
      */
-    public static String macroExpand(Spawn spawn, String rawtext) throws TokenReplacerOverflowException {
+    public static String macroExpand(Spawn spawn, String rawtext) throws TokenReplacerOverflowException, IllegalStateException {
         MacroTokenReplacer replacer = new MacroTokenReplacer(spawn);
         List<String> contents = new ArrayList<>();
         List<String> delimiters = new ArrayList<>();

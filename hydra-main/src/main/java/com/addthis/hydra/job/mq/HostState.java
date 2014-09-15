@@ -13,90 +13,59 @@
  */
 package com.addthis.hydra.job.mq;
 
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 
 import com.addthis.codec.annotations.FieldConfig;
-import com.addthis.hydra.job.Minion;
+import com.addthis.hydra.job.minion.Minion;
 
 import com.google.common.base.Objects;
 
-import org.codehaus.jackson.annotate.JsonIgnoreProperties;
-import org.codehaus.jackson.annotate.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 @JsonIgnoreProperties({"messageType", "totalLive"})
 public class HostState implements HostMessage {
 
     private static final long serialVersionUID = 7252930788607795642L;
 
-    @FieldConfig(codable = true)
-    private String host;
-    @FieldConfig(codable = true)
-    private int port;
-    @FieldConfig(codable = true)
-    private String uuid;
-    @FieldConfig(codable = true)
-    private String user;
-    @FieldConfig(codable = true)
-    private String path;
-    @FieldConfig(codable = true)
-    private String group;
+    @FieldConfig private String host;
+    @FieldConfig private int port;
+    @FieldConfig private String uuid;
+    @FieldConfig private String user;
+    @FieldConfig private String path;
+    @FieldConfig private String group;
     // Host State is determined by others zk group membership, by
     // definition it can not persist.
-    @FieldConfig(codable = true)
-    private boolean up;
-    @FieldConfig(codable = true)
-    private long time;
-    @FieldConfig(codable = true)
-    private long uptime;
-    @FieldConfig(codable = true)
-    private int availableTaskSlots;
-    @FieldConfig(codable = true)
-    private int maxTaskSlots;
-    @FieldConfig(codable = true)
-    private JobKey[] running;
-    @FieldConfig(codable = true)
-    private JobKey[] replicating;
-    @FieldConfig(codable = true)
-    private JobKey[] backingup;
-    @FieldConfig(codable = true)
-    private JobKey[] stopped;
-    @FieldConfig(codable = true)
-    private JobKey[] replicas;
-    @FieldConfig(codable = true)
-    private JobKey[] incompleteReplicas;
-    @FieldConfig(codable = true)
-    private JobKey[] queued;
+    @FieldConfig private boolean up;
+    @FieldConfig private long time;
+    @FieldConfig private long uptime;
+    @FieldConfig private int availableTaskSlots;
+    @FieldConfig private int maxTaskSlots;
+    @FieldConfig private JobKey[] running;
+    @FieldConfig private JobKey[] replicating;
+    @FieldConfig private JobKey[] backingup;
+    @FieldConfig private JobKey[] stopped;
+    @FieldConfig private JobKey[] replicas;
+    @FieldConfig private JobKey[] incompleteReplicas;
+    @FieldConfig private JobKey[] queued;
+    @FieldConfig private HostCapacity used;
+    @FieldConfig private HostCapacity max;
+    @FieldConfig private boolean dead;
+    @FieldConfig private long lastUpdateTime;
+    @FieldConfig private double histQueueSize;
+    @FieldConfig private double histWaitTime;
+    //TODO:  remove but need this in for now because de-serialization fails without it
+    @FieldConfig private HashMap<String, Double> jobRuntimes = new HashMap<>();
+    @FieldConfig private boolean readOnly;
+    @FieldConfig private boolean diskReadOnly;
+    @FieldConfig private boolean disabled;
+    @FieldConfig private double meanActiveTasks;
+    @FieldConfig private String minionTypes;
+
     // Do not encode this derived, internal, non-typesafe field
     private HashMap<String, Integer> jobTaskCountMap;
-    @FieldConfig(codable = true)
-    private HostCapacity used;
-    @FieldConfig(codable = true)
-    private HostCapacity max;
-    @FieldConfig(codable = true)
-    private boolean dead;
-    @FieldConfig(codable = true)
-    private long lastUpdateTime;
-    @FieldConfig(codable = true)
-    private double histQueueSize;
-    @FieldConfig(codable = true)
-    private double histWaitTime;
-    //TODO:  remove but need this in for now because de-serialization fails without it
-    @FieldConfig(codable = true)
-    private HashMap<String, Double> jobRuntimes = new HashMap<>();
-    @FieldConfig(codable = true)
-    private boolean readOnly;
-    @FieldConfig(codable = true)
-    private boolean diskReadOnly;
-    @FieldConfig(codable = true)
-    private boolean disabled;
-    @FieldConfig(codable = true)
-    private double meanActiveTasks;
-    @FieldConfig(codable = true)
-    private String minionTypes;
 
     public HostState() {
     }
@@ -114,6 +83,147 @@ public class HostState implements HostMessage {
     public String getHostUuid() {
         return uuid;
     }
+
+    public void setHostUuid(String uuid) {
+        this.uuid = uuid;
+    }
+
+    public void setUpdated() {
+        lastUpdateTime = System.currentTimeMillis();
+    }
+
+    public boolean hasLive(JobKey jobKey) {
+        if (stopped != null && Arrays.asList(stopped).contains(jobKey)) {
+            return true;
+        }
+        if (queued != null && Arrays.asList(queued).contains(jobKey)) {
+            return true;
+        }
+        if (running != null && Arrays.asList(running).contains(jobKey)) {
+            return true;
+        }
+        if (replicating != null && Arrays.asList(replicating).contains(jobKey)) {
+            return true;
+        }
+        if (backingup != null && Arrays.asList(backingup).contains(jobKey)) {
+            return true;
+        }
+        return false;
+    }
+
+    public boolean hasIncompleteReplica(JobKey jobKey) {
+        return (incompleteReplicas != null) && Arrays.asList(incompleteReplicas).contains(jobKey);
+    }
+
+    public List<JobKey> allJobKeys() {
+        List<JobKey> rv = new ArrayList<>();
+        for (JobKey[] jobKeys : Arrays.asList(stopped, queued, running, replicating, backingup, replicas)) {
+            if (jobKeys != null) {
+                rv.addAll(Arrays.asList(jobKeys));
+            }
+        }
+        return rv;
+    }
+
+    public Integer addJob(String jobId) {
+        if (this.jobTaskCountMap == null) {
+            jobTaskCountMap = new HashMap<>();
+        }
+        int currentCount = 0;
+        if (jobTaskCountMap.containsKey(jobId)) {
+            currentCount = jobTaskCountMap.get(jobId);
+        }
+        return jobTaskCountMap.put(jobId, currentCount + 1);
+    }
+
+    public void generateJobTaskCountMap() {
+        jobTaskCountMap = new HashMap<>();
+        List<JobKey[]> activeJobsSources = Arrays.asList(stopped, queued, running, replicas);
+        for (JobKey[] source : activeJobsSources) {
+            if (source == null) {
+                continue;
+            }
+            for (JobKey jobKey : source) {
+                if (jobKey == null) {
+                    continue;
+                }
+                Integer oldCount = jobTaskCountMap.get(jobKey.getJobUuid());
+                int newCount;
+                if (oldCount != null) {
+                    newCount = 1 + oldCount;
+                } else {
+                    newCount = 1;
+                }
+                jobTaskCountMap.put(jobKey.getJobUuid(), newCount);
+            }
+        }
+    }
+
+    public Integer getTaskCount(String jobId) {
+        if (jobTaskCountMap == null) {
+            generateJobTaskCountMap();
+        }
+        if ((jobTaskCountMap != null) && jobTaskCountMap.containsKey(jobId)) {
+            return jobTaskCountMap.get(jobId);
+        } else {
+            return 0;
+        }
+    }
+
+    public boolean canMirrorTasks() {
+        return up && !dead && !diskReadOnly && !disabled;
+    }
+
+    public boolean hasType(String type) {
+        if (minionTypes == null) {
+            minionTypes = Minion.defaultMinionType;
+        }
+        if (minionTypes.contains(",")) {
+            return Arrays.asList(minionTypes.split(",")).contains(type);
+        }
+        return type.equals(minionTypes);
+    }
+
+    public int countTotalLive() {
+        int total = 0;
+        for (JobKey[] keys : Arrays.asList(stopped, running, replicating, backingup, queued)) {
+            if (keys != null) {
+                total += keys.length;
+            }
+        }
+        return total;
+    }
+
+    @Override
+    public String toString() {
+        return Objects.toStringHelper(this)
+                .add("type", getMessageType())
+                .add("uuid", getHostUuid())
+                .add("last-update-time", getLastUpdateTime())
+                .add("host", getHost())
+                .add("port", getPort())
+                .add("group", getGroup())
+                .add("time", getTime())
+                .add("uptime", getUptime())
+                        // You probably only want to print these out when testing locally
+                        // .add("running", getRunning())
+                        // .add("stopped", getStopped())
+                        // .add("replicas", getReplicas())
+                        // .add("queued",getQueued())
+                .add("used", getUsed())
+                .add("user", getUser())
+                .add("path", getPath())
+                .add("max", getMax())
+                .add("up", isUp())
+                .add("dead", isDead())
+                .add("readOnly", isReadOnly())
+                .add("diskReadOnly", isDiskReadOnly())
+                .toString();
+    }
+
+    //
+    // generic getters / setters
+    //
 
     public long getLastUpdateTime() {
         return lastUpdateTime;
@@ -139,10 +249,6 @@ public class HostState implements HostMessage {
         this.histWaitTime = seconds;
     }
 
-    public void setUpdated() {
-        lastUpdateTime = System.currentTimeMillis();
-    }
-
     public String getHost() {
         return host;
     }
@@ -157,11 +263,6 @@ public class HostState implements HostMessage {
 
     public void setPort(int port) {
         this.port = port;
-    }
-
-    @JsonProperty(value = "hostUuid")
-    public void setUuid(String uuid) {
-        this.uuid = uuid;
     }
 
     public String getGroup() {
@@ -218,12 +319,8 @@ public class HostState implements HostMessage {
         return backingup;
     }
 
-    public void setBackingUp(JobKey[] backingUp) {
-        this.backingup = backingUp;
-    }
-
-    public JobKey[] getStopped() {
-        return stopped;
+    public void setBackingup(JobKey[] backingup) {
+        this.backingup = backingup;
     }
 
     public void setReplicas(JobKey[] replicas) {
@@ -236,6 +333,10 @@ public class HostState implements HostMessage {
 
     public void setStopped(JobKey[] stopped) {
         this.stopped = stopped;
+    }
+
+    public JobKey[] getStopped() {
+        return stopped;
     }
 
     public JobKey[] getQueued() {
@@ -286,75 +387,6 @@ public class HostState implements HostMessage {
         return dead;
     }
 
-    public boolean hasLive(JobKey jobKey) {
-        if (stopped != null && Arrays.asList(stopped).contains(jobKey)) {
-            return true;
-        }
-        if (queued != null && Arrays.asList(queued).contains(jobKey)) {
-            return true;
-        }
-        if (running != null && Arrays.asList(running).contains(jobKey)) {
-            return true;
-        }
-        if (replicating != null && Arrays.asList(replicating).contains(jobKey)) {
-            return true;
-        }
-        if (backingup != null && Arrays.asList(backingup).contains(jobKey)) {
-            return true;
-        }
-        return false;
-    }
-
-    public boolean hasIncompleteReplica(JobKey jobKey) {
-        return (incompleteReplicas != null && Arrays.asList(incompleteReplicas).contains(jobKey));
-    }
-
-    public List<JobKey> allJobKeys() {
-        List<JobKey> rv = new ArrayList<>();
-        for (JobKey[] jobKeys : Arrays.asList(stopped, queued, running, replicating, backingup, replicas)) {
-            if (jobKeys != null) {
-                rv.addAll(Arrays.asList(jobKeys));
-            }
-        }
-        return rv;
-    }
-
-    public Integer addJob(String jobId) {
-        if (this.jobTaskCountMap == null) {
-            jobTaskCountMap = new HashMap<>();
-        }
-        int currentCount = 0;
-        if (jobTaskCountMap.containsKey(jobId)) {
-            currentCount = jobTaskCountMap.get(jobId);
-        }
-        return jobTaskCountMap.put(jobId, currentCount + 1);
-    }
-
-    public void generateJobTaskCountMap() {
-        jobTaskCountMap = new HashMap<>();
-        List<JobKey[]> activeJobsSources = Arrays.asList(stopped, queued, running, replicas);
-        for (JobKey[] source : activeJobsSources) {
-            if (source == null) {
-                continue;
-            }
-            for (JobKey jobKey : source) {
-                if (jobKey == null) {
-                    continue;
-                }
-                Integer oldCount;
-                int newCount = ((oldCount = jobTaskCountMap.get(jobKey.getJobUuid())) != null ? 1 + oldCount : 1);
-                jobTaskCountMap.put(jobKey.getJobUuid(), newCount);
-            }
-        }
-    }
-
-    public Integer getTaskCount(String jobId) {
-        if (jobTaskCountMap == null) {
-            generateJobTaskCountMap();
-        }
-        return jobTaskCountMap != null && jobTaskCountMap.containsKey(jobId) ? jobTaskCountMap.get(jobId) : 0;
-    }
-
     public boolean isReadOnly() {
         return readOnly;
     }
@@ -377,10 +409,6 @@ public class HostState implements HostMessage {
 
     public void setAvailableTaskSlots(int availableTaskSlots) {
         this.availableTaskSlots = availableTaskSlots;
-    }
-
-    public boolean canMirrorTasks() {
-        return (up && !dead && !diskReadOnly && !disabled);
     }
 
     public boolean isDisabled() {
@@ -407,16 +435,6 @@ public class HostState implements HostMessage {
         this.minionTypes = minionTypes;
     }
 
-    public boolean hasType(String type) {
-        if (minionTypes == null) {
-            minionTypes = Minion.getDefaultMinionType();
-        }
-        if (minionTypes.contains(",")) {
-            return Arrays.asList(minionTypes.split(",")).contains(type);
-        }
-        return type.equals(minionTypes);
-    }
-
     public JobKey[] getIncompleteReplicas() {
         return incompleteReplicas;
     }
@@ -431,42 +449,5 @@ public class HostState implements HostMessage {
 
     public void setMaxTaskSlots(int maxTaskSlots) {
         this.maxTaskSlots = maxTaskSlots;
-    }
-
-    @Override
-    public String toString() {
-        return Objects.toStringHelper(this)
-                .add("type", getMessageType())
-                .add("uuid", getHostUuid())
-                .add("last-update-time", getLastUpdateTime())
-                .add("host", getHost())
-                .add("port", getPort())
-                .add("group", getGroup())
-                .add("time", getTime())
-                .add("uptime", getUptime())
-                        // You probably only want to print these out when testing locally
-                        // .add("running", getRunning())
-                        // .add("stopped", getStopped())
-                        // .add("replicas", getReplicas())
-                        // .add("queued",getQueued())
-                .add("used", getUsed())
-                .add("user", getUser())
-                .add("path", getPath())
-                .add("max", getMax())
-                .add("up", isUp())
-                .add("dead", isDead())
-                .add("readOnly", isReadOnly())
-                .add("diskReadOnly", isDiskReadOnly())
-                .toString();
-    }
-
-    public int countTotalLive() {
-        int total = 0;
-        for (JobKey[] keys : Arrays.asList(stopped, running, replicating, backingup, queued)) {
-            if (keys != null) {
-                total += keys.length;
-            }
-        }
-        return total;
     }
 }
